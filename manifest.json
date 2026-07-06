@@ -1,0 +1,18 @@
+{
+  "name": "LevaGO — Entregas em Tempo Real",
+  "short_name": "LevaGO",
+  "description": "Qualquer pessoa pode entregar. Entregas em tempo real na sua cidade, com pagamento via PIX.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0d1524",
+  "theme_color": "#0d1524",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://em-content.zobj.net/source/apple/391/package_1f4e6.png",
+      "sizes": "160x160",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
