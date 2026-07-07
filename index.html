@@ -330,9 +330,20 @@
       <p class="lead">Publique e a entrega aparece <b style="color:var(--text)">na hora</b> no mapa de todos os entregadores da cidade.</p>
       <div class="card">
         <h3>📍 Pontos da rota</h3>
-        <button class="btn sm ghost" id="btnPickColeta">1️⃣ Marcar ponto de COLETA no mapa</button>
-        <button class="btn sm ghost" id="btnPickDestino">2️⃣ Marcar ponto de ENTREGA no mapa</button>
-        <button class="btn sm ghost" id="btnMinhaLoc">📡 Usar minha localização como coleta</button>
+        <label>Endereço de coleta</label>
+        <div style="display:flex;gap:8px">
+          <input class="inp" id="fEndColeta" placeholder="Rua e número — ex.: Rua dos Mineiros, 100">
+          <button class="btn sm" id="btnGeoColeta" style="width:auto;padding:0 18px;flex:none">🔍</button>
+        </div>
+        <label>Endereço de entrega</label>
+        <div style="display:flex;gap:8px">
+          <input class="inp" id="fEndDestino" placeholder="Rua e número do cliente">
+          <button class="btn sm" id="btnGeoDestino" style="width:auto;padding:0 18px;flex:none">🔍</button>
+        </div>
+        <div class="fee-note">Digite e toque em 🔍 — o app marca no mapa sozinho. Depois você pode <b>arrastar o pino</b> para ajustar. Ou, se preferir:</div>
+        <button class="btn sm ghost" id="btnPickColeta" style="margin-top:8px">🗺️ Marcar coleta tocando no mapa</button>
+        <button class="btn sm ghost" id="btnPickDestino" style="margin-top:8px">🗺️ Marcar entrega tocando no mapa</button>
+        <button class="btn sm ghost" id="btnMinhaLoc" style="margin-top:8px">📡 Usar minha localização como coleta</button>
         <div class="fee-note" id="pickStatus">Nenhum ponto marcado ainda.</div>
       </div>
       <div class="card">
@@ -483,6 +494,8 @@ const FIREBASE_CONFIG = {
 const ADMIN_EMAIL = "markos_bad@hotmail.com";
 /* Centro do mapa (Valença-RJ): */
 const CENTER = [-22.2458, -43.7010];
+/* Cidade padrão para busca de endereços: */
+const CITY_HINT = "Valença, RJ";
 /* ===================================================================== */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -556,6 +569,8 @@ function initMap(){
     $("sheet").classList.remove("open");
   });
   setTimeout(()=>map.invalidateSize(),100);
+  setTimeout(()=>map.invalidateSize(),600);
+  window.addEventListener("resize",()=>map&&map.invalidateSize());
 }
 function pinIcon(job){
   const sz=SIZES.find(s=>s.id===job.tamanho)||SIZES[0];
@@ -970,18 +985,49 @@ function buildSizes(){
     w.appendChild(d);
   });
 }
+/* ---- busca de endereço (Nominatim / OpenStreetMap — gratuito) ---- */
+async function geocode(texto){
+  const temCidade=/valença|rio de janeiro|rj\b/i.test(texto);
+  const q=temCidade?texto:texto+", "+CITY_HINT;
+  const url="https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q="+encodeURIComponent(q);
+  const r=await fetch(url,{headers:{"Accept-Language":"pt-BR"}});
+  const j=await r.json();
+  if(!j.length)return null;
+  return {lat:+j[0].lat,lng:+j[0].lon,label:j[0].display_name.split(",").slice(0,2).join(",").trim()};
+}
+async function buscarEndereco(mode,inputId,btnId){
+  const txt=$(inputId).value.trim();
+  if(txt.length<4){toast("Digite o endereço (rua e número).");return}
+  $(btnId).disabled=true;toast("🔍 Buscando endereço...");
+  try{
+    const pt=await geocode(txt);
+    if(!pt){toast("😕 Endereço não encontrado. Tente incluir o bairro, ou marque no mapa.");}
+    else{
+      setPoint(mode,pt);
+      showPage("map");
+      map.setView([pt.lat,pt.lng],17);
+      toast("📍 <b>"+esc(pt.label)+"</b> marcado! Arraste o pino se precisar ajustar.");
+      setTimeout(()=>showPage("pgNova"),1800);
+    }
+  }catch(e){toast("Sem conexão com o serviço de endereços. Marque no mapa.")}
+  $(btnId).disabled=false;
+}
+$("btnGeoColeta").onclick=()=>buscarEndereco("coleta","fEndColeta","btnGeoColeta");
+$("btnGeoDestino").onclick=()=>buscarEndereco("destino","fEndDestino","btnGeoDestino");
+
 $("btnPickColeta").onclick=()=>startPick("coleta");
 $("btnPickDestino").onclick=()=>startPick("destino");
 $("btnMinhaLoc").onclick=()=>{
   if(!navigator.geolocation){toast("GPS indisponível.");return}
   navigator.geolocation.getCurrentPosition(p=>{
-    setPoint("coleta",{lat:p.coords.latitude,lng:p.coords.longitude});
+    setPoint("coleta",{lat:p.coords.latitude,lng:p.coords.longitude,label:S.perfil.lojaNome||"Minha localização"});
     toast("📡 Coleta marcada na sua localização!");
-  },()=>toast("Não consegui pegar sua localização. Marque no mapa."));
+  },()=>toast("Não consegui pegar sua localização. Busque pelo endereço."));
 };
 function startPick(mode){
   S.pickMode=mode;
   showPage("map");
+  setTimeout(()=>map.invalidateSize(),150);
   $("pickHint").textContent=mode==="coleta"?"👆 Toque no mapa onde o entregador vai COLETAR":"👆 Toque no mapa onde o pacote será ENTREGUE";
   $("pickHint").classList.add("show");
 }
@@ -992,19 +1038,27 @@ function pickPoint(latlng){
   showPage("pgNova");
 }
 function setPoint(mode,pt){
+  const drag=mk=>{mk.on("dragend",()=>{
+    const p=mk.getLatLng();
+    if(mode==="coleta"){S.coleta.lat=p.lat;S.coleta.lng=p.lng}
+    else{S.destino.lat=p.lat;S.destino.lng=p.lng}
+    calcPrice();toast("📍 Pino ajustado!");
+  })};
   if(mode==="coleta"){
     S.coleta=pt;
     if(S.coletaMk)map.removeLayer(S.coletaMk);
-    S.coletaMk=L.marker([pt.lat,pt.lng],{icon:coletaIcon}).addTo(map);
+    S.coletaMk=L.marker([pt.lat,pt.lng],{icon:coletaIcon,draggable:true}).addTo(map);
+    drag(S.coletaMk);
   }else{
     S.destino=pt;
     if(S.destinoMk)map.removeLayer(S.destinoMk);
-    S.destinoMk=L.marker([pt.lat,pt.lng],{icon:destIcon}).addTo(map);
+    S.destinoMk=L.marker([pt.lat,pt.lng],{icon:destIcon,draggable:true}).addTo(map);
+    drag(S.destinoMk);
   }
   const st=[];
-  if(S.coleta)st.push("✅ Coleta marcada");
-  if(S.destino)st.push("✅ Entrega marcada");
-  $("pickStatus").innerHTML=st.length?st.join(" · "):"Nenhum ponto marcado ainda.";
+  if(S.coleta)st.push("✅ Coleta: "+esc(S.coleta.label||"marcada no mapa"));
+  if(S.destino)st.push("✅ Entrega: "+esc(S.destino.label||"marcada no mapa"));
+  $("pickStatus").innerHTML=st.length?st.join("<br>"):"Nenhum ponto marcado ainda.";
   calcPrice();
 }
 function calcPrice(){
@@ -1031,15 +1085,16 @@ $("btnPublish").onclick=async()=>{
     await addDoc(collection(db,"entregas"),{
       lojaId:S.user.uid, lojaNome:S.perfil.lojaNome||S.perfil.nome,
       status:"disponivel", item, tamanho:S.selSize,
-      origem:{lat:S.coleta.lat,lng:S.coleta.lng,label:S.perfil.lojaNome||"Ponto de coleta"},
-      destino:{lat:S.destino.lat,lng:S.destino.lng,label:"Endereço do cliente"},
+      origem:{lat:S.coleta.lat,lng:S.coleta.lng,label:S.coleta.label||S.perfil.lojaNome||"Ponto de coleta"},
+      destino:{lat:S.destino.lat,lng:S.destino.lng,label:S.destino.label||"Endereço do cliente"},
       km:Math.round(km*10)/10, tabela, valorEntregador, comissao, total,
       parceiro:S.perfil.plan==="parceiro",
       codigoColeta:rand4(), pin:rand4(),
       criadoEm:serverTimestamp()
     });
     toast("📣 Entrega publicada por "+brl(total)+"! Já está no mapa dos entregadores.");
-    $("fItem").value="";S.coleta=null;S.destino=null;
+    $("fItem").value="";$("fEndColeta").value="";$("fEndDestino").value="";
+    S.coleta=null;S.destino=null;
     if(S.coletaMk){map.removeLayer(S.coletaMk);S.coletaMk=null}
     if(S.destinoMk){map.removeLayer(S.destinoMk);S.destinoMk=null}
     $("pickStatus").textContent="Nenhum ponto marcado ainda.";calcPrice();
