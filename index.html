@@ -210,22 +210,17 @@
 <div id="authView" style="display:none">
   <div class="auth-box">
     <div class="auth-logo">📦 Leva<span>GO</span></div>
-    <div class="auth-sub">Entregas em tempo real na sua cidade.<br>Qualquer pessoa pode entregar — com ou sem veículo.</div>
+    <div class="auth-sub">Entrega colaborativa e ecológica na sua cidade. 🌱<br>Uma conta só: <b style="color:var(--text)">peça entregas</b> e <b style="color:var(--text)">entregue</b> — a pé, de bike, como quiser.</div>
     <div class="auth-tabs">
       <button class="auth-tab on" id="tabLogin">Entrar</button>
       <button class="auth-tab" id="tabSignup">Criar conta</button>
     </div>
     <div id="signupFields" style="display:none">
-      <div class="role-row">
-        <button class="role-opt sel" id="roleEntregador"><span class="ico">🛵</span>Sou Entregador</button>
-        <button class="role-opt" id="roleLoja"><span class="ico">🏪</span>Sou Estabelecimento</button>
-      </div>
       <label>Seu nome</label>
       <input class="inp" id="aNome" maxlength="40" placeholder="Ex.: Marcos Vinicius">
-      <div id="lojaNomeWrap" style="display:none">
-        <label>Nome do estabelecimento</label>
-        <input class="inp" id="aLojaNome" maxlength="40" placeholder="Ex.: Padaria Pão da Serra">
-      </div>
+      <label>Nome do seu negócio (opcional)</label>
+      <input class="inp" id="aLojaNome" maxlength="40" placeholder="Ex.: Padaria Pão da Serra">
+      <div class="fee-note">Se você só vai entregar, deixe em branco. Dá pra preencher depois.</div>
     </div>
     <label>E-mail</label>
     <input class="inp" id="aEmail" type="email" autocomplete="email" placeholder="voce@email.com">
@@ -293,7 +288,7 @@
   <div class="page" id="pgProfile">
     <div class="page-scroll">
       <div class="prof-head">
-        <div class="avatar">🛵</div>
+        <div class="avatar">👤</div>
         <div style="flex:1">
           <div class="lvl-name" id="pNome">—</div>
           <div class="stars" id="pStars">☆☆☆☆☆</div>
@@ -308,9 +303,25 @@
         <div class="fee-note">O pagamento é feito em até <b>24h</b> após a solicitação. Você recebe <b>60%</b> de cada entrega, creditados assim que o cliente confirma o PIN.</div>
       </div>
       <div class="stats">
-        <div class="stat"><b id="pEnt">0</b><small>Entregas</small></div>
+        <div class="stat"><b id="pEnt">0</b><small>Entregas feitas</small></div>
         <div class="stat"><b id="pNota">—</b><small>Nota média</small></div>
         <div class="stat"><b id="pKm">0</b><small>km rodados</small></div>
+      </div>
+      <div class="card">
+        <h3>🤝 Seu plano (para quem pede entregas)</h3>
+        <div class="plan-row">
+          <button class="plan-opt" id="planBasico"><b>Básico</b><small>R$ 0/mês</small><span>Paga só quando pede. Comissão de 40% sobre a tarifa.</span></button>
+          <button class="plan-opt" id="planParceiro"><b>⭐ Parceiro</b><small>R$ 99/mês</small><span>Comissão cai para 25% + destaque e prioridade na lista.</span></button>
+        </div>
+        <div class="fee-note">Mensalidade do Parceiro é <b>isenta</b> para quem pede menos de R$ 300/mês em entregas. Sem fidelidade e sem multa.</div>
+      </div>
+      <div class="card">
+        <h3>🧾 Meus pedidos (como solicitante)</h3>
+        <div class="stats" style="margin-bottom:0">
+          <div class="stat"><b id="lTotal">0</b><small>Pedidos</small></div>
+          <div class="stat"><b id="lGasto">R$ 0</b><small>Investido</small></div>
+          <div class="stat"><b id="lNota">—</b><small>Sua nota</small></div>
+        </div>
       </div>
       <div class="card">
         <h3>🧾 Histórico de entregas</h3>
@@ -327,7 +338,7 @@
   <!-- ===== PÁGINA: NOVA ENTREGA (loja) ===== -->
   <div class="page" id="pgNova">
     <div class="page-scroll">
-      <h2>Nova entrega</h2>
+      <h2>Pedir entrega</h2>
       <p class="lead">Publique e a entrega aparece <b style="color:var(--text)">na hora</b> no mapa de todos os entregadores da cidade.</p>
       <div class="card">
         <h3>📍 Pontos da rota</h3>
@@ -369,48 +380,9 @@
   <!-- ===== PÁGINA: MEUS PEDIDOS (loja) ===== -->
   <div class="page" id="pgPedidos">
     <div class="page-scroll">
-      <h2>Minhas entregas</h2>
+      <h2>Meus pedidos</h2>
       <p class="lead">Acompanhe em tempo real. Mostre o <b style="color:var(--go)">código de coleta</b> ao entregador no balcão e envie o <b style="color:var(--pix)">PIN</b> ao seu cliente.</p>
       <div id="pedidosList"></div>
-    </div>
-  </div>
-
-  <!-- ===== PÁGINA: MINHA LOJA (loja) ===== -->
-  <div class="page" id="pgLoja">
-    <div class="page-scroll">
-      <div class="prof-head">
-        <div class="avatar">🏪</div>
-        <div style="flex:1">
-          <div class="lvl-name" id="lNome">—</div>
-          <div class="stars" id="lStars">☆☆☆☆☆</div>
-        </div>
-      </div>
-      <div class="card">
-        <h3>🤝 Seu plano LevaGO</h3>
-        <div class="plan-row">
-          <button class="plan-opt" id="planBasico"><b>Básico</b><small>R$ 0/mês</small><span>Paga só quando entrega. Comissão de 40% sobre a tarifa.</span></button>
-          <button class="plan-opt" id="planParceiro"><b>⭐ Parceiro</b><small>R$ 99/mês</small><span>Comissão cai para 25% + destaque e prioridade na lista.</span></button>
-        </div>
-        <div class="fee-note">Mensalidade do Parceiro é <b>isenta</b> para lojas com menos de R$ 300/mês em entregas. Sem fidelidade e sem multa. A cobrança é feita por fatura via PIX.</div>
-      </div>
-      <div class="card">
-        <h3>📜 Como funciona</h3>
-        <p class="txt">
-          1. Você publica a entrega e paga a tarifa por km (fatura semanal via PIX).<br>
-          2. Um entregador aceita e vai até você — confirme a retirada mostrando o <b>código de coleta</b>.<br>
-          3. Envie o <b>PIN</b> ao seu cliente (botão de WhatsApp no pedido). O pagamento ao entregador só libera com o PIN.<br>
-          4. Avalie o entregador ao final — avaliação dupla protege todo mundo.
-        </p>
-      </div>
-      <div class="card">
-        <h3>🧾 Resumo</h3>
-        <div class="stats" style="margin-bottom:0">
-          <div class="stat"><b id="lTotal">0</b><small>Entregas</small></div>
-          <div class="stat"><b id="lGasto">R$ 0</b><small>Investido</small></div>
-          <div class="stat"><b id="lNota">—</b><small>Sua nota</small></div>
-        </div>
-      </div>
-      <button class="btn ghost" id="btnLogout2">Sair da conta</button>
     </div>
   </div>
 
@@ -572,8 +544,7 @@ function initMap(){
   });
   const cIcon=L.divIcon({className:"",iconSize:[46,46],iconAnchor:[23,23],
     html:'<div class="courier-wrap"><div class="radar"></div><div class="radar r2"></div><div class="courier">🛵</div></div>'});
-  courierMk=L.marker(CENTER,{icon:cIcon,zIndexOffset:1000});
-  if(S.perfil?.tipo==="entregador")courierMk.addTo(map);
+  courierMk=L.marker(CENTER,{icon:cIcon,zIndexOffset:1000}).addTo(map);
   map.on("click",e=>{
     if(S.pickMode)return pickPoint(e.latlng);
     $("sheet").classList.remove("open");
@@ -616,7 +587,7 @@ function updateRouteFromPos(){
 }
 
 /* ================== AUTH ================== */
-let authMode="login", authRole="entregador";
+let authMode="login";
 $("tabLogin").onclick=()=>setAuthMode("login");
 $("tabSignup").onclick=()=>setAuthMode("signup");
 function setAuthMode(m){
@@ -626,14 +597,6 @@ function setAuthMode(m){
   $("signupFields").style.display=m==="signup"?"block":"none";
   $("aBtn").textContent=m==="login"?"ENTRAR":"CRIAR CONTA";
   $("aErr").textContent="";
-}
-$("roleEntregador").onclick=()=>setRole("entregador");
-$("roleLoja").onclick=()=>setRole("loja");
-function setRole(r){
-  authRole=r;
-  $("roleEntregador").classList.toggle("sel",r==="entregador");
-  $("roleLoja").classList.toggle("sel",r==="loja");
-  $("lojaNomeWrap").style.display=r==="loja"?"block":"none";
 }
 const AUTH_ERRS={
   "auth/invalid-email":"E-mail inválido.","auth/user-not-found":"Conta não encontrada.",
@@ -650,10 +613,9 @@ $("aBtn").onclick=async()=>{
       const nome=$("aNome").value.trim();
       const lojaNome=$("aLojaNome").value.trim();
       if(!nome)throw {code:"x",message:"Informe seu nome."};
-      if(authRole==="loja"&&!lojaNome)throw {code:"x",message:"Informe o nome do estabelecimento."};
       const cred=await createUserWithEmailAndPassword(auth,email,senha);
       await setDoc(doc(db,"users",cred.user.uid),{
-        nome, tipo:authRole, lojaNome:authRole==="loja"?lojaNome:null,
+        nome, lojaNome:lojaNome||null,
         plan:"basico", saldo:0, pixKey:"", criadoEm:serverTimestamp()
       });
     }else{
@@ -665,7 +627,7 @@ $("aBtn").onclick=async()=>{
   $("aBtn").disabled=false;
 };
 $("btnLogout1").onclick=()=>signOut(auth);
-$("btnLogout2").onclick=()=>signOut(auth);
+
 
 onAuthStateChanged(auth,async user=>{
   cleanup();
@@ -679,9 +641,9 @@ onAuthStateChanged(auth,async user=>{
   S.isAdmin=(user.email||"").toLowerCase()===ADMIN_EMAIL.toLowerCase();
   const snap=await getDoc(doc(db,"users",user.uid));
   if(!snap.exists()){
-    await setDoc(doc(db,"users",user.uid),{nome:user.email.split("@")[0],tipo:"entregador",plan:"basico",saldo:0,pixKey:"",criadoEm:serverTimestamp()});
+    await setDoc(doc(db,"users",user.uid),{nome:user.email.split("@")[0],lojaNome:null,plan:"basico",saldo:0,pixKey:"",criadoEm:serverTimestamp()});
   }
-  S.perfil={id:user.uid,...(snap.exists()?snap.data():{tipo:"entregador",saldo:0})};
+  S.perfil={id:user.uid,...(snap.exists()?snap.data():{saldo:0})};
   $("authView").style.display="none";
   $("loading").style.display="none";
   $("app").style.display="flex";
@@ -708,18 +670,15 @@ function bootApp(){
   initMap();
   const p=S.perfil;
   $("hdNome").textContent="👤 "+(p.nome||"").split(" ")[0];
-  const tabs=[];
-  if(p.tipo==="entregador"){
-    courierMk.addTo(map);startGPS();
-    $("hdSaldoPill").style.display="flex";
-    tabs.push({id:"map",ico:"🗺️",lbl:"Mapa"},{id:"pgJobs",ico:"📦",lbl:"Entregas",badge:"jobsBadge"},{id:"pgProfile",ico:"🛵",lbl:"Perfil"});
-    listenJobs(); listenMyActive(); refreshCourierProfile();
-  }else{
-    $("hdSaldoPill").style.display="none";
-    tabs.push({id:"map",ico:"🗺️",lbl:"Mapa"},{id:"pgNova",ico:"➕",lbl:"Nova"},{id:"pgPedidos",ico:"📦",lbl:"Pedidos",badge:"pedBadge"},{id:"pgLoja",ico:"🏪",lbl:"Loja"});
-    listenPedidos(); refreshLojaProfile(); buildSizes();
-    listenJobs(); // loja também vê pins no mapa
-  }
+  $("hdSaldoPill").style.display="flex";
+  startGPS();
+  const tabs=[
+    {id:"map",ico:"🗺️",lbl:"Mapa"},
+    {id:"pgJobs",ico:"📦",lbl:"Entregar",badge:"jobsBadge"},
+    {id:"pgNova",ico:"➕",lbl:"Pedir"},
+    {id:"pgPedidos",ico:"🧾",lbl:"Pedidos",badge:"pedBadge"},
+    {id:"pgProfile",ico:"👤",lbl:"Perfil"}
+  ];
   if(S.isAdmin)tabs.push({id:"pgAdmin",ico:"💼",lbl:"Admin"});
   const nav=$("navBar");nav.innerHTML="";
   tabs.forEach((t,i)=>{
@@ -729,6 +688,8 @@ function bootApp(){
     b.onclick=()=>showPage(t.id);
     nav.appendChild(b);
   });
+  listenJobs(); listenMyActive(); refreshCourierProfile();
+  listenPedidos(); buildSizes(); refreshLojaProfile();
   if(S.isAdmin)listenAdmin();
   showPage("map");
 }
@@ -746,7 +707,7 @@ function listenJobs(){
   S.unsubs.push(onSnapshot(q,snap=>{
     snap.docChanges().forEach(ch=>{
       const id=ch.doc.id,d={id,...ch.doc.data()};
-      if(ch.type==="removed"||d.status!=="disponivel"){
+      if(ch.type==="removed"||d.status!=="disponivel"||d.lojaId===S.user.uid){
         S.jobs.delete(id);
         const m=S.jobMarkers.get(id);if(m){map.removeLayer(m);S.jobMarkers.delete(id)}
       }else{
@@ -785,7 +746,7 @@ function refreshJobsUI(){
 /* ================== FOLHA / ACEITAR ================== */
 function openSheet(id){
   const job=S.jobs.get(id);if(!job)return;
-  if(S.perfil.tipo!=="entregador"){toast("Entre com uma conta de entregador para aceitar entregas.");return}
+  if(job.lojaId===S.user.uid){toast("Esse pedido é seu 😉 Acompanhe na aba Pedidos.");return}
   if(S.active){toast("Finalize a entrega atual antes de aceitar outra 😉");return}
   S.sheetJob=job;
   const sz=SIZES.find(s=>s.id===job.tamanho)||SIZES[0];
@@ -1187,7 +1148,6 @@ function renderPedidos(list){
 
 /* ================== LOJA: PERFIL / PLANO ================== */
 function refreshLojaProfile(list){
-  $("lNome").textContent=S.perfil.lojaNome||S.perfil.nome||"—";
   $("planBasico").classList.toggle("sel",S.perfil.plan!=="parceiro");
   $("planParceiro").classList.toggle("sel",S.perfil.plan==="parceiro");
   if(list){
@@ -1197,7 +1157,6 @@ function refreshLojaProfile(list){
     const notas=conc.filter(d=>d.notaEntregador).map(d=>d.notaEntregador);
     const media=notas.length?notas.reduce((a,b)=>a+b,0)/notas.length:0;
     $("lNota").textContent=notas.length?media.toFixed(1)+"★":"—";
-    $("lStars").textContent=notas.length?"★★★★★".slice(0,Math.round(media))+"☆☆☆☆☆".slice(0,5-Math.round(media)):"☆☆☆☆☆";
   }
 }
 $("planBasico").onclick=()=>setPlan("basico");

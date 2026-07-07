@@ -34,8 +34,8 @@ Seu fluxo de sempre:
 
 ## 4️⃣ Criar as primeiras contas (teste real)
 
-1. No celular, abra o site → **Criar conta** → *Sou Estabelecimento* (use um e-mail de teste).
-2. Em outro celular (ou aba anônima) → **Criar conta** → *Sou Entregador*.
+1. No celular, abra o site → **Criar conta** (conta única: todo mundo pode pedir E entregar).
+2. Em outro celular (ou aba anônima) → **Criar conta** com outro e-mail (será o entregador do teste — ninguém pode aceitar o próprio pedido).
 3. Com você logado no seu e-mail de dono, a aba **💼 Admin** aparece automaticamente.
 
 ### Teste do fluxo completo

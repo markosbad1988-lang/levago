@@ -29,14 +29,16 @@ service cloud.firestore {
         && request.resource.data.status == "disponivel";
 
       // atualizações permitidas:
-      // 1) a loja dona (cancelar, avaliar entregador)
+      // 1) a loja/solicitante dono (cancelar, avaliar entregador)
       // 2) o entregador designado (coletar, concluir, desistir, GPS, avaliar loja)
       // 3) um entregador aceitando uma entrega disponível (se designando)
+      //    — nunca a própria entrega
       allow update: if logado() && (
         resource.data.lojaId == request.auth.uid
         || resource.data.entregadorId == request.auth.uid
         || (resource.data.status == "disponivel"
             && request.resource.data.entregadorId == request.auth.uid
+            && request.resource.data.entregadorId != resource.data.lojaId
             && request.resource.data.status == "aceita")
       );
 
