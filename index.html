@@ -6,8 +6,9 @@
 <meta name="theme-color" content="#0d1524">
 <title>LevaGO — Entregas em Tempo Real</title>
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
   :root{
     --ink:#0d1524; --panel:#141f33; --panel-2:#1b2a45; --line:#26385c;
@@ -22,7 +23,7 @@
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Ubuntu,sans-serif;background:var(--ink);color:var(--text);overflow:hidden}
   button{font-family:inherit;border:none;cursor:pointer}
   input,select,textarea{font-family:inherit}
-  #app{height:100dvh;display:flex;flex-direction:column;position:relative}
+  #app{height:100vh;height:100dvh;display:flex;flex-direction:column;position:relative}
 
   /* ---------- AUTH ---------- */
   #authView{position:absolute;inset:0;z-index:5000;background:var(--ink);display:flex;align-items:center;justify-content:center;padding:22px;overflow-y:auto}
@@ -50,7 +51,7 @@
   .pill .money{color:var(--pix)}
 
   /* ---------- MAPA ---------- */
-  #map{flex:1;z-index:1;background:#0d1524}
+  #map{position:absolute;inset:0;z-index:1;background:#0d1524}
   .leaflet-container{font:inherit}
   .courier-wrap{position:relative;width:46px;height:46px}
   .radar{position:absolute;inset:-32px;border-radius:50%;border:2px solid rgba(255,176,32,.55);animation:radar 2.4s ease-out infinite}
@@ -506,6 +507,7 @@ import { getFirestore, doc, setDoc, getDoc, updateDoc, addDoc, collection, query
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const fb = initializeApp(FIREBASE_CONFIG);
+window.__levagoBoot = true; // sinaliza que os módulos carregaram
 const auth = getAuth(fb);
 const db = getFirestore(fb);
 
@@ -557,9 +559,17 @@ let map=null, courierMk=null;
 function initMap(){
   if(map)return;
   map=L.map("map",{zoomControl:false}).setView(CENTER,15);
-  L.tileLayer("https://{s}.basemap.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{
+  const tiles=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{
     maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
   }).addTo(map);
+  let usouFallback=false;
+  tiles.on("tileerror",()=>{           // se o servidor de mapa falhar, troca pro OSM padrão
+    if(usouFallback)return;usouFallback=true;
+    map.removeLayer(tiles);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{
+      maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+  });
   const cIcon=L.divIcon({className:"",iconSize:[46,46],iconAnchor:[23,23],
     html:'<div class="courier-wrap"><div class="radar"></div><div class="radar r2"></div><div class="courier">🛵</div></div>'});
   courierMk=L.marker(CENTER,{icon:cIcon,zIndexOffset:1000});
@@ -939,8 +949,9 @@ async function refreshCourierProfile(){
   $("pPix").value=S.perfil.pixKey||"";
   // histórico + nota
   try{
-    const q=query(collection(db,"entregas"),where("entregadorId","==",S.user.uid),where("status","==","concluida"),orderBy("concluidaEm","desc"),limit(20));
-    const docs=(await getDocs(q)).docs.map(d=>d.data());
+    const q=query(collection(db,"entregas"),where("entregadorId","==",S.user.uid),where("status","==","concluida"));
+    const docs=(await getDocs(q)).docs.map(d=>d.data())
+      .sort((a,b)=>(b.concluidaEm?.seconds||0)-(a.concluidaEm?.seconds||0)).slice(0,20);
     $("pEnt").textContent=docs.length+(docs.length===20?"+":"");
     $("pKm").textContent=docs.reduce((a,d)=>a+(d.km||0),0).toFixed(1);
     const notas=docs.filter(d=>d.notaLoja).map(d=>d.notaLoja);
@@ -1106,9 +1117,10 @@ $("btnPublish").onclick=async()=>{
 /* ================== LOJA: MEUS PEDIDOS (tempo real) ================== */
 let trackMk=null,trackUnsubId=null;
 function listenPedidos(){
-  const q=query(collection(db,"entregas"),where("lojaId","==",S.user.uid),orderBy("criadoEm","desc"),limit(30));
+  const q=query(collection(db,"entregas"),where("lojaId","==",S.user.uid));
   S.unsubs.push(onSnapshot(q,snap=>{
-    const list=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const list=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .sort((a,b)=>(b.criadoEm?.seconds||0)-(a.criadoEm?.seconds||0)).slice(0,30);
     renderPedidos(list);
     const ativos=list.filter(d=>["disponivel","aceita","coletada"].includes(d.status)).length;
     const badge=$("pedBadge");
@@ -1207,16 +1219,17 @@ function listenAdmin(){
     $("admRev").textContent=brl(rev);
     $("admInfo").innerHTML=`<b>${n}</b> entregas concluídas na plataforma. Comissões a faturar das lojas via PIX (semanal).`;
   },()=>{}));
-  const q2=query(collection(db,"saques"),where("status","==","pendente"),orderBy("criadoEm","desc"));
+  const q2=query(collection(db,"saques"),where("status","==","pendente"));
   S.unsubs.push(onSnapshot(q2,snap=>{
     const w=$("admSaques");w.innerHTML="";
     if(snap.empty){w.innerHTML='<p class="txt">Nenhum saque pendente. 🎉</p>';return}
-    snap.forEach(d=>{
-      const s=d.data();
+    const arr=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .sort((a,b)=>(b.criadoEm?.seconds||0)-(a.criadoEm?.seconds||0));
+    arr.forEach(s=>{
       const el=document.createElement("div");el.className="hist-row";
       el.innerHTML=`<div><b>${esc(s.nome)}</b><small>PIX: ${esc(s.pixKey)}</small></div>
         <div style="text-align:right"><span class="hist-val">${brl(s.valor)}</span><br>
-        <button class="btn sm pix" style="width:auto;padding:6px 12px;margin-top:4px" data-pago="${d.id}">Marcar pago</button></div>`;
+        <button class="btn sm pix" style="width:auto;padding:6px 12px;margin-top:4px" data-pago="${s.id}">Marcar pago</button></div>`;
       el.querySelector("[data-pago]").onclick=async ev=>{
         try{await updateDoc(doc(db,"saques",ev.target.dataset.pago),{status:"pago",pagoEm:serverTimestamp()})}catch(e){toast("Erro.")}
       };
@@ -1226,6 +1239,15 @@ function listenAdmin(){
 }
 
 
+</script>
+<script>
+/* Vigia: se em 6s os módulos do Firebase não carregarem, explica o problema na tela */
+setTimeout(function(){
+  if(!window.__levagoBoot){
+    var l=document.getElementById("loading");
+    if(l)l.innerHTML+='<p style="max-width:320px;text-align:center;font-size:13px;color:#8fa3c4;line-height:1.7;padding:0 20px;margin-top:8px">⚠️ <b style="color:#eef3fb">O app não conseguiu carregar.</b><br>1. Abra pelo link da Vercel (ex.: levago.vercel.app) — abrir o arquivo direto do computador não funciona.<br>2. Verifique sua conexão com a internet.</p>';
+  }
+},6000);
 </script>
 </body>
 </html>
