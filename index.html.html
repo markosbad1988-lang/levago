@@ -53,7 +53,8 @@
 
   /* ---------- MAPA ---------- */
   #map{position:absolute;inset:0;z-index:1;background:#0d1524}
-  .leaflet-container{font:inherit}
+  .leaflet-container{font:inherit;cursor:crosshair!important}
+  .leaflet-marker-icon,.leaflet-marker-icon *{cursor:pointer!important}
   .courier-wrap{position:relative;width:46px;height:46px}
   .radar{position:absolute;inset:-32px;border-radius:50%;border:2px solid rgba(255,176,32,.55);animation:radar 2.4s ease-out infinite}
   .radar.r2{animation-delay:1.2s}
