@@ -29,8 +29,8 @@ service cloud.firestore {
         && request.resource.data.status == "disponivel";
 
       // atualizações permitidas:
-      // 1) a loja/solicitante dono (cancelar, avaliar entregador)
-      // 2) o entregador designado (coletar, concluir, desistir, GPS, avaliar loja)
+      // 1) a loja/solicitante dono (cancelar, avaliar entregador, relatar problema)
+      // 2) o entregador designado (coletar, concluir, desistir, GPS, avaliar loja, relatar problema)
       // 3) um entregador aceitando uma entrega disponível (se designando)
       //    — nunca a própria entrega
       allow update: if logado() && (
@@ -54,6 +54,14 @@ service cloud.firestore {
       // entregador vê os próprios; admin vê e atualiza todos (marcar pago)
       allow read: if logado() && (resource.data.entregadorId == request.auth.uid || isAdmin());
       allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ---------- PRESENÇA (disponibilidade no mapa) ----------
+    // Qualquer logado vê quem está disponível; cada um só escreve o próprio ponto.
+    match /presenca/{uid} {
+      allow read: if logado();
+      allow write: if logado() && request.auth.uid == uid;
       allow delete: if false;
     }
   }

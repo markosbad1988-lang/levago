@@ -49,6 +49,7 @@
   .pills{display:flex;gap:8px}
   .pill{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px 12px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;box-shadow:0 6px 20px rgba(0,0,0,.35)}
   .pill .money{color:var(--pix)}
+  .pill.on{border-color:var(--walk)!important;color:var(--walk)!important;background:rgba(76,208,125,.1)}
 
   /* ---------- MAPA ---------- */
   #map{position:absolute;inset:0;z-index:1;background:#0d1524}
@@ -221,6 +222,9 @@
       <label>Nome do seu negócio (opcional)</label>
       <input class="inp" id="aLojaNome" maxlength="40" placeholder="Ex.: Padaria Pão da Serra">
       <div class="fee-note">Se você só vai entregar, deixe em branco. Dá pra preencher depois.</div>
+      <label>Seu WhatsApp (com DDD)</label>
+      <input class="inp" id="aTelefone" type="tel" inputmode="numeric" maxlength="11" placeholder="Ex.: 24999998888">
+      <div class="fee-note">Só números. Usado para loja e entregador se falarem direto durante a entrega.</div>
     </div>
     <label>E-mail</label>
     <input class="inp" id="aEmail" type="email" autocomplete="email" placeholder="voce@email.com">
@@ -236,6 +240,7 @@
   <header>
     <div class="logo">📦 <b>Leva<span>GO</span></b></div>
     <div class="pills">
+      <button class="pill" id="hdDisp" style="border:1px solid var(--line);color:var(--muted)">📡 Ficar disponível</button>
       <div class="pill" id="hdSaldoPill" style="display:none">💰 <span class="money" id="hdSaldo">R$ 0,00</span></div>
       <div class="pill" id="hdNome">👤</div>
     </div>
@@ -254,6 +259,8 @@
     <div class="steps"><div class="step" id="st1"></div><div class="step" id="st2"></div><div class="step" id="st3"></div></div>
     <div class="ab-status" id="abStatus"></div>
     <button class="btn sm" id="abBtn"></button>
+    <button class="btn sm ghost" id="abWpp" style="margin-top:8px">📱 Falar com a loja</button>
+    <button class="btn sm ghost" id="abProblema" style="margin-top:8px">⚠️ Relatar problema</button>
     <button class="btn sm danger" id="abCancel" style="margin-top:8px">Desistir da entrega</button>
   </div>
 
@@ -397,8 +404,16 @@
         <p class="txt" id="admInfo">—</p>
       </div>
       <div class="card">
+        <h3>📈 Entregas concluídas — últimos 7 dias</h3>
+        <div id="admChart" style="display:flex;align-items:flex-end;gap:6px;height:100px;margin-top:10px"></div>
+      </div>
+      <div class="card">
         <h3>⚡ Saques pendentes</h3>
         <div id="admSaques"></div>
+      </div>
+      <div class="card">
+        <h3>⚠️ Problemas relatados</h3>
+        <div id="admProblemas"></div>
       </div>
     </div>
   </div>
@@ -434,6 +449,18 @@
     <p style="margin-bottom:6px">Avalie o estabelecimento:</p>
     <div class="rate-stars" id="rateStore"></div>
     <button class="btn pix" id="payOk">ENVIAR AVALIAÇÃO</button>
+  </div>
+</div>
+
+<!-- MODAL: RELATAR PROBLEMA (loja e entregador) -->
+<div class="overlay" id="ovProblema">
+  <div class="modal">
+    <div class="big">⚠️</div>
+    <h3>Relatar problema</h3>
+    <p>Descreva rapidamente o que aconteceu. Isso fica registrado no pedido e o dono do app é avisado.</p>
+    <textarea class="inp" id="probTexto" rows="4" maxlength="300" placeholder="Ex.: Endereço errado, cliente não atendeu, pacote danificado..." style="resize:none;margin-bottom:16px"></textarea>
+    <button class="btn danger" id="probEnviar" style="border:1px solid rgba(255,93,115,.4);background:rgba(255,93,115,.12);color:var(--danger)">ENVIAR RELATO</button>
+    <button class="btn ghost" id="probCancelar" style="margin-top:8px">Cancelar</button>
   </div>
 </div>
 
@@ -523,7 +550,8 @@ const S={
   routeLine:null, destMk:null, storeMk:null,
   pickMode:null, coleta:null, destino:null, coletaMk:null, destinoMk:null,
   selSize:"walk", sheetJob:null,
-  codeMode:null, unsubs:[], rateVal:5, rateEntrega:null
+  codeMode:null, unsubs:[], rateVal:5, rateEntrega:null,
+  disponivel:false, presencaTimer:null, presencaMarkers:new Map()
 };
 
 /* ================== MAPA ================== */
@@ -612,10 +640,12 @@ $("aBtn").onclick=async()=>{
     if(authMode==="signup"){
       const nome=$("aNome").value.trim();
       const lojaNome=$("aLojaNome").value.trim();
+      const telefone=$("aTelefone").value.replace(/\D/g,"");
       if(!nome)throw {code:"x",message:"Informe seu nome."};
+      if(telefone.length<10)throw {code:"x",message:"Informe um WhatsApp válido, com DDD."};
       const cred=await createUserWithEmailAndPassword(auth,email,senha);
       await setDoc(doc(db,"users",cred.user.uid),{
-        nome, lojaNome:lojaNome||null,
+        nome, lojaNome:lojaNome||null, telefone,
         plan:"basico", saldo:0, pixKey:"", criadoEm:serverTimestamp()
       });
     }else{
@@ -657,6 +687,9 @@ function cleanup(){
   S.jobs.clear();
   S.jobMarkers.forEach(m=>{try{map&&map.removeLayer(m)}catch(e){}});S.jobMarkers.clear();
   clearRouteLayers();
+  if(S.presencaTimer){clearInterval(S.presencaTimer);S.presencaTimer=null}
+  S.presencaMarkers.forEach(m=>{try{map&&map.removeLayer(m)}catch(e){}});S.presencaMarkers.clear();
+  S.disponivel=false;
   S.active=null;S.coleta=null;S.destino=null;S.pickMode=null;
 }
 function clearRouteLayers(){
@@ -690,6 +723,7 @@ function bootApp(){
   });
   listenJobs(); listenMyActive(); refreshCourierProfile();
   listenPedidos(); buildSizes(); refreshLojaProfile();
+  listenPresenca();
   if(S.isAdmin)listenAdmin();
   showPage("map");
 }
@@ -743,6 +777,43 @@ function refreshJobsUI(){
     });
 }
 
+/* ================== DISPONIBILIDADE NO MAPA ================== */
+const presIcon=L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],
+  html:'<div style="width:22px;height:22px;border-radius:50%;background:var(--walk);border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:11px">📡</div>'});
+$("hdDisp").onclick=async()=>{
+  S.disponivel=!S.disponivel;
+  $("hdDisp").classList.toggle("on",S.disponivel);
+  $("hdDisp").textContent=S.disponivel?"📡 Disponível":"📡 Ficar disponível";
+  if(S.disponivel){
+    const push=()=>setDoc(doc(db,"presenca",S.user.uid),{nome:S.perfil.nome,lat:S.pos[0],lng:S.pos[1],ativo:true,ts:Date.now()}).catch(()=>{});
+    push();
+    S.presencaTimer=setInterval(push,20000);
+    toast("📡 Você está visível no mapa para outros usuários pedirem entrega com confiança.");
+  }else{
+    if(S.presencaTimer){clearInterval(S.presencaTimer);S.presencaTimer=null}
+    try{await setDoc(doc(db,"presenca",S.user.uid),{ativo:false,ts:Date.now()},{merge:true})}catch(e){}
+    toast("Você saiu da lista de disponíveis.");
+  }
+};
+function listenPresenca(){
+  const q=query(collection(db,"presenca"),where("ativo","==",true));
+  S.unsubs.push(onSnapshot(q,snap=>{
+    const vistos=new Set();
+    snap.forEach(d=>{
+      if(d.id===S.user.uid)return; // não duplica o próprio marcador
+      const dados=d.data();
+      if(Date.now()-(dados.ts||0)>10*60*1000)return; // ignora presença parada há mais de 10min
+      vistos.add(d.id);
+      const pos=[dados.lat,dados.lng];
+      if(S.presencaMarkers.has(d.id))S.presencaMarkers.get(d.id).setLatLng(pos);
+      else S.presencaMarkers.set(d.id,L.marker(pos,{icon:presIcon,zIndexOffset:500}).bindTooltip(dados.nome||"Entregador disponível").addTo(map));
+    });
+    [...S.presencaMarkers.keys()].forEach(id=>{
+      if(!vistos.has(id)){map.removeLayer(S.presencaMarkers.get(id));S.presencaMarkers.delete(id)}
+    });
+  },err=>console.error("presenca",err)));
+}
+
 /* ================== FOLHA / ACEITAR ================== */
 function openSheet(id){
   const job=S.jobs.get(id);if(!job)return;
@@ -771,7 +842,7 @@ $("btnAccept").onclick=async()=>{
       const ref=doc(db,"entregas",job.id);
       const snap=await tx.get(ref);
       if(!snap.exists()||snap.data().status!=="disponivel")throw new Error("tarde");
-      tx.update(ref,{status:"aceita",entregadorId:S.user.uid,entregadorNome:S.perfil.nome,aceitaEm:serverTimestamp()});
+      tx.update(ref,{status:"aceita",entregadorId:S.user.uid,entregadorNome:S.perfil.nome,entregadorTelefone:S.perfil.telefone||null,aceitaEm:serverTimestamp()});
     });
     $("sheet").classList.remove("open");
     toast("🚀 Entrega aceita! Vá até o ponto de coleta.");
@@ -783,13 +854,11 @@ $("btnAccept").onclick=async()=>{
 
 /* ================== MINHA ENTREGA ATIVA (entregador) ================== */
 function listenMyActive(){
-  const q=query(collection(db,"entregas"),
-    where("entregadorId","==",S.user.uid),
-    where("status","in",["aceita","coletada"]));
+  const q=query(collection(db,"entregas"),where("entregadorId","==",S.user.uid));
   S.unsubs.push(onSnapshot(q,snap=>{
-    if(snap.empty){setActive(null);return}
-    const d=snap.docs[0];
-    setActive({id:d.id,...d.data()});
+    const docs=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const ativa=docs.find(d=>["aceita","coletada"].includes(d.status));
+    setActive(ativa||null);
   },err=>console.error("active",err)));
 }
 function setActive(job){
@@ -799,6 +868,7 @@ function setActive(job){
   if(!job){b.classList.remove("show");return}
   b.classList.add("show");
   $("abMoney").textContent=brl(job.valorEntregador);
+  $("abWpp").style.display=job.lojaTelefone?"block":"none";
   $("st1").className="step done";
   $("st2").className="step"+(job.status==="coletada"?" done":"");
   $("st3").className="step";
@@ -834,6 +904,39 @@ $("abCancel").onclick=async()=>{
     await updateDoc(doc(db,"entregas",j.id),{status:"disponivel",entregadorId:null,entregadorNome:null,posEntregador:null});
     toast("Entrega devolvida ao mapa.");
   }catch(e){toast("Erro ao desistir. Tente de novo.")}
+};
+
+/* ================== RELATAR PROBLEMA (loja e entregador) ================== */
+let S_probEntregaId=null,S_probPapel=null;
+function abrirProblema(entregaId,papel){
+  S_probEntregaId=entregaId;S_probPapel=papel;
+  $("probTexto").value="";
+  $("ovProblema").classList.add("show");
+  setTimeout(()=>$("probTexto").focus(),150);
+}
+$("abProblema").onclick=()=>{
+  const j=S.active;if(!j)return;
+  abrirProblema(j.id,"entregador");
+};
+$("abWpp").onclick=()=>{
+  const j=S.active;if(!j||!j.lojaTelefone)return;
+  const msg=encodeURIComponent(`Olá! Sou o entregador da sua entrega pelo LevaGO 📦 (${j.item||"pacote"}).`);
+  window.open("https://wa.me/55"+j.lojaTelefone+"?text="+msg,"_blank");
+};
+$("probCancelar").onclick=()=>$("ovProblema").classList.remove("show");
+$("probEnviar").onclick=async()=>{
+  const texto=$("probTexto").value.trim();
+  if(!texto){toast("Descreva o problema antes de enviar.");return}
+  if(!S_probEntregaId)return;
+  $("probEnviar").disabled=true;
+  try{
+    await updateDoc(doc(db,"entregas",S_probEntregaId),{
+      problema:{texto,por:S.perfil.nome||"—",papel:S_probPapel,ts:Date.now()}
+    });
+    $("ovProblema").classList.remove("show");
+    toast("⚠️ Problema relatado. O dono do app foi avisado.");
+  }catch(e){toast("Erro ao enviar o relato. Tente de novo.")}
+  $("probEnviar").disabled=false;
 };
 
 /* ================== MODAL DE CÓDIGO ================== */
@@ -1055,7 +1158,7 @@ $("btnPublish").onclick=async()=>{
   $("btnPublish").disabled=true;
   try{
     await addDoc(collection(db,"entregas"),{
-      lojaId:S.user.uid, lojaNome:S.perfil.lojaNome||S.perfil.nome,
+      lojaId:S.user.uid, lojaNome:S.perfil.lojaNome||S.perfil.nome, lojaTelefone:S.perfil.telefone||null,
       status:"disponivel", item, tamanho:S.selSize,
       origem:{lat:S.coleta.lat,lng:S.coleta.lng,label:S.coleta.label||S.perfil.lojaNome||"Ponto de coleta"},
       destino:{lat:S.destino.lat,lng:S.destino.lng,label:S.destino.label||"Endereço do cliente"},
@@ -1116,6 +1219,11 @@ function renderPedidos(list){
       inner+=`<div class="code-show pin"><small>PIN de recebimento — envie ao seu cliente</small><b>${d.pin}</b></div>
         <button class="btn sm pix" data-wa="${d.pin}">📱 Enviar PIN ao cliente por WhatsApp</button>`;
       if(d.posEntregador)inner+=`<button class="btn sm ghost" data-track="1" style="margin-top:8px">🗺️ Ver entregador no mapa</button>`;
+      if(d.entregadorTelefone)inner+=`<button class="btn sm ghost" data-wppent="${d.entregadorTelefone}" data-item="${esc(d.item)}" style="margin-top:8px">📱 Falar com o entregador</button>`;
+      if(!d.problema)inner+=`<button class="btn sm ghost" data-prob="${d.id}" style="margin-top:8px">⚠️ Relatar problema</button>`;
+    }
+    if(d.problema){
+      inner+=`<p class="txt" style="color:var(--danger);margin-top:8px">⚠️ Problema relatado (${d.problema.papel==="entregador"?"pelo entregador":"por você"}): "${esc(d.problema.texto)}"</p>`;
     }
     if(d.status==="disponivel"){
       inner+=`<button class="btn sm danger" data-cancel="${d.id}">Cancelar entrega</button>`;
@@ -1132,6 +1240,11 @@ function renderPedidos(list){
       window.open("https://wa.me/?text="+msg,"_blank");
     });
     c.querySelectorAll("[data-track]").forEach(b=>b.onclick=()=>{showPage("map");if(trackMk)map.setView(trackMk.getLatLng(),16)});
+    c.querySelectorAll("[data-prob]").forEach(b=>b.onclick=()=>abrirProblema(b.dataset.prob,"loja"));
+    c.querySelectorAll("[data-wppent]").forEach(b=>b.onclick=()=>{
+      const msg=encodeURIComponent(`Olá! Aqui é da loja, sobre a entrega do pedido "${b.dataset.item}" pelo LevaGO 📦.`);
+      window.open("https://wa.me/55"+b.dataset.wppent+"?text="+msg,"_blank");
+    });
     c.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=async()=>{
       if(!confirm("Cancelar esta entrega?"))return;
       try{await updateDoc(doc(db,"entregas",b.dataset.cancel),{status:"cancelada"})}catch(e){toast("Erro ao cancelar.")}
@@ -1170,13 +1283,44 @@ async function setPlan(p){
 }
 
 /* ================== ADMIN ================== */
+const DIA_LBL=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const diaKey=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+function renderAdminChart(porDia){
+  const w=$("admChart");if(!w)return;
+  w.innerHTML="";
+  const dias=[];
+  for(let i=6;i>=0;i--){
+    const d=new Date();d.setDate(d.getDate()-i);
+    dias.push({key:diaKey(d),lbl:DIA_LBL[d.getDay()],n:porDia[diaKey(d)]||0});
+  }
+  const max=Math.max(1,...dias.map(d=>d.n));
+  dias.forEach(d=>{
+    const col=document.createElement("div");
+    col.style.cssText="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end";
+    const alt=Math.round((d.n/max)*70)+(d.n>0?6:0);
+    col.innerHTML=`<small style="font-size:10px;color:var(--muted)">${d.n||""}</small>
+      <div style="width:100%;max-width:26px;height:${alt}px;background:${d.n>0?'var(--go)':'var(--line)'};border-radius:6px 6px 2px 2px"></div>
+      <small style="font-size:9.5px;color:var(--muted)">${d.lbl}</small>`;
+    w.appendChild(col);
+  });
+}
 function listenAdmin(){
   const q1=query(collection(db,"entregas"),where("status","==","concluida"));
   S.unsubs.push(onSnapshot(q1,snap=>{
     let rev=0,n=0;
-    snap.forEach(d=>{rev+=(d.data().comissao||0);n++});
+    const porDia={}; // "YYYY-MM-DD" -> contagem
+    snap.forEach(d=>{
+      const x=d.data();
+      rev+=(x.comissao||0);n++;
+      const seg=x.concluidaEm&&x.concluidaEm.seconds;
+      if(seg){
+        const dia=diaKey(new Date(seg*1000));
+        porDia[dia]=(porDia[dia]||0)+1;
+      }
+    });
     $("admRev").textContent=brl(rev);
     $("admInfo").innerHTML=`<b>${n}</b> entregas concluídas na plataforma. Comissões a faturar das lojas via PIX (semanal).`;
+    renderAdminChart(porDia);
   },()=>{}));
   const q2=query(collection(db,"saques"),where("status","==","pendente"));
   S.unsubs.push(onSnapshot(q2,snap=>{
@@ -1192,6 +1336,21 @@ function listenAdmin(){
       el.querySelector("[data-pago]").onclick=async ev=>{
         try{await updateDoc(doc(db,"saques",ev.target.dataset.pago),{status:"pago",pagoEm:serverTimestamp()})}catch(e){toast("Erro.")}
       };
+      w.appendChild(el);
+    });
+  },()=>{}));
+  const q3=query(collection(db,"entregas"),where("problema","!=",null));
+  S.unsubs.push(onSnapshot(q3,snap=>{
+    const w=$("admProblemas");w.innerHTML="";
+    if(snap.empty){w.innerHTML='<p class="txt">Nenhum problema relatado. 🎉</p>';return}
+    const arr=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .sort((a,b)=>(b.problema.ts||0)-(a.problema.ts||0));
+    arr.forEach(s=>{
+      const el=document.createElement("div");el.className="hist-row";
+      el.style.alignItems="flex-start";
+      el.innerHTML=`<div><b>${esc(s.lojaNome)}</b> ${s.entregadorNome?"· 🛵 "+esc(s.entregadorNome):""}
+        <small>relatado por ${s.problema.papel==="entregador"?"entregador":"loja"} (${esc(s.problema.por)})</small>
+        <small style="display:block;color:var(--text);margin-top:2px">"${esc(s.problema.texto)}"</small></div>`;
       w.appendChild(el);
     });
   },()=>{}));
