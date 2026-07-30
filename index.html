@@ -528,13 +528,14 @@ const SIZES=[
   {id:"moto",lbl:"Grande",ico:"🧺",colRaw:"#ff8a3d",desc:"Volumoso ou pesado"},
   {id:"car",lbl:"Muito grande",ico:"🛒",colRaw:"#ff5d73",desc:"Várias caixas"}
 ];
-const PRICING={walk:{base:6,km:1.8},bike:{base:7,km:2.0},moto:{base:8.5,km:2.3},car:{base:12,km:2.8}};
+const PRICING={walk:{base:6,km:2.2},bike:{base:7,km:2.5},moto:{base:8.5,km:2.9},car:{base:12,km:3.5}};
 const SHARE=0.60;                 // entregador recebe 60%
 const COMISSAO_PLATAFORMA=0.40; // comissão fixa da plataforma sobre a tarifa
+const PISO_ENTREGADOR=5.00;    // o entregador nunca recebe menos que isso, mesmo em entregas curtas
 function priceOf(size,km){const p=PRICING[size];return Math.round((p.base+km*p.km)*2)/2}
 function calcSplit(size,km){
   const tabela=priceOf(size,km);
-  const valorEntregador=Math.round(tabela*SHARE*100)/100;
+  const valorEntregador=Math.max(Math.round(tabela*SHARE*100)/100,PISO_ENTREGADOR);
   const comissao=Math.round(tabela*COMISSAO_PLATAFORMA*100)/100;
   const total=Math.round((valorEntregador+comissao)*100)/100;
   return {tabela,valorEntregador,comissao,total};
@@ -1199,7 +1200,7 @@ function calcPrice(){
   $("fTotal").textContent=brl(total);
   $("fEnt").textContent=brl(valorEntregador);
   $("fPlat").textContent=brl(comissao);
-  $("feeNote").innerHTML=`Sem mensalidade: comissão fixa de ${Math.round(COMISSAO_PLATAFORMA*100)}% sobre a tarifa. Entregador recebe 60% quando o cliente confirma o PIN.`;
+  $("feeNote").innerHTML=`Sem mensalidade: comissão fixa de ${Math.round(COMISSAO_PLATAFORMA*100)}% sobre a tarifa. Entregador recebe 60% (mínimo garantido de ${brl(PISO_ENTREGADOR)}) quando o cliente confirma o PIN.`;
 }
 $("btnPublish").onclick=async()=>{
   if(!S.coleta||!S.destino){toast("Marque os pontos de coleta e entrega no mapa. 🗺️");return}
