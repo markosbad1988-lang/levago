@@ -868,13 +868,13 @@ $("btnAccept").onclick=async()=>{
   try{
     await runTransaction(db,async tx=>{
       const ref=doc(db,"entregas",job.id);
-      const codRef=doc(db,"codigos",job.id);
       const snap=await tx.get(ref);
-      const codSnap=await tx.get(codRef);
       if(!snap.exists()||snap.data().status!=="disponivel")throw new Error("tarde");
-      if(!codSnap.exists()||codSnap.data().entregadorId)throw new Error("tarde");
       tx.update(ref,{status:"aceita",entregadorId:S.user.uid,entregadorNome:S.perfil.nome,entregadorTelefone:S.perfil.telefone||null,aceitaEm:serverTimestamp()});
-      tx.update(codRef,{entregadorId:S.user.uid});
+      // atualização "às cegas" (sem ler antes) — a regra do Firestore só permite
+      // se entregadorId ainda estiver null, o que evita dois entregadores
+      // acertarem a mesma entrega ao mesmo tempo
+      tx.update(doc(db,"codigos",job.id),{entregadorId:S.user.uid});
     });
     $("sheet").classList.remove("open");
     toast("🚀 Entrega aceita! Vá até o ponto de coleta.");
