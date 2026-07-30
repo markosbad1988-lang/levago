@@ -563,7 +563,7 @@ const S={
   pickMode:null, coleta:null, destino:null, coletaMk:null, destinoMk:null,
   selSize:"walk", sheetJob:null,
   codeMode:null, unsubs:[], rateVal:5, rateEntrega:null,
-  disponivel:false, presencaTimer:null, presencaMarkers:new Map()
+  disponivel:false, presencaTimer:null, presencaMarkers:new Map(), codigosCache:new Map()
 };
 
 /* ================== MAPA ================== */
@@ -702,6 +702,7 @@ function cleanup(){
   if(S.presencaTimer){clearInterval(S.presencaTimer);S.presencaTimer=null}
   S.presencaMarkers.forEach(m=>{try{map&&map.removeLayer(m)}catch(e){}});S.presencaMarkers.clear();
   S.disponivel=false;
+  S.codigosCache.clear();
   S.active=null;S.coleta=null;S.destino=null;S.pickMode=null;
 }
 function clearRouteLayers(){
@@ -867,9 +868,13 @@ $("btnAccept").onclick=async()=>{
   try{
     await runTransaction(db,async tx=>{
       const ref=doc(db,"entregas",job.id);
+      const codRef=doc(db,"codigos",job.id);
       const snap=await tx.get(ref);
+      const codSnap=await tx.get(codRef);
       if(!snap.exists()||snap.data().status!=="disponivel")throw new Error("tarde");
+      if(!codSnap.exists()||codSnap.data().entregadorId)throw new Error("tarde");
       tx.update(ref,{status:"aceita",entregadorId:S.user.uid,entregadorNome:S.perfil.nome,entregadorTelefone:S.perfil.telefone||null,aceitaEm:serverTimestamp()});
+      tx.update(codRef,{entregadorId:S.user.uid});
     });
     $("sheet").classList.remove("open");
     toast("🚀 Entrega aceita! Vá até o ponto de coleta.");
@@ -882,11 +887,26 @@ $("btnAccept").onclick=async()=>{
 /* ================== MINHA ENTREGA ATIVA (entregador) ================== */
 function listenMyActive(){
   const q=query(collection(db,"entregas"),where("entregadorId","==",S.user.uid));
-  S.unsubs.push(onSnapshot(q,snap=>{
+  S.unsubs.push(onSnapshot(q,async snap=>{
     const docs=snap.docs.map(d=>({id:d.id,...d.data()}));
     const ativa=docs.find(d=>["aceita","coletada"].includes(d.status));
-    setActive(ativa||null);
+    setActive(ativa?await garantirCodigos(ativa):null);
   },err=>console.error("active",err)));
+}
+async function garantirCodigos(job){
+  if(S.codigosCache.has(job.id)){
+    const c=S.codigosCache.get(job.id);
+    return {...job,codigoColeta:c.codigoColeta,pin:c.pin};
+  }
+  try{
+    const snap=await getDoc(doc(db,"codigos",job.id));
+    if(snap.exists()){
+      const c=snap.data();
+      S.codigosCache.set(job.id,c);
+      return {...job,codigoColeta:c.codigoColeta,pin:c.pin};
+    }
+  }catch(e){console.error("codigos",e)}
+  return job;
 }
 function setActive(job){
   S.active=job;
@@ -1211,14 +1231,16 @@ $("btnPublish").onclick=async()=>{
   const {tabela,valorEntregador,comissao,total}=calcSplit(S.selSize,km);
   $("btnPublish").disabled=true;
   try{
-    await addDoc(collection(db,"entregas"),{
+    const ref=await addDoc(collection(db,"entregas"),{
       lojaId:S.user.uid, lojaNome:S.perfil.lojaNome||S.perfil.nome, lojaTelefone:S.perfil.telefone||null,
       status:"disponivel", item, tamanho:S.selSize,
       origem:{lat:S.coleta.lat,lng:S.coleta.lng,label:S.coleta.label||S.perfil.lojaNome||"Ponto de coleta",referencia:S.coleta.referencia||null},
       destino:{lat:S.destino.lat,lng:S.destino.lng,label:S.destino.label||"Endereço do cliente",referencia:S.destino.referencia||null},
       km:Math.round(km*10)/10, tabela, valorEntregador, comissao, total,
-      codigoColeta:rand4(), pin:rand4(),
       criadoEm:serverTimestamp()
+    });
+    await setDoc(doc(db,"codigos",ref.id),{
+      lojaId:S.user.uid, entregadorId:null, codigoColeta:rand4(), pin:rand4()
     });
     toast("📣 Entrega publicada por "+brl(total)+"! Já está no mapa dos entregadores.");
     $("fItem").value="";
@@ -1236,10 +1258,10 @@ $("btnPublish").onclick=async()=>{
 let trackMk=null,trackUnsubId=null;
 function listenPedidos(){
   const q=query(collection(db,"entregas"),where("lojaId","==",S.user.uid));
-  S.unsubs.push(onSnapshot(q,snap=>{
+  S.unsubs.push(onSnapshot(q,async snap=>{
     const list=snap.docs.map(d=>({id:d.id,...d.data()}))
       .sort((a,b)=>(b.criadoEm?.seconds||0)-(a.criadoEm?.seconds||0)).slice(0,30);
-    renderPedidos(list);
+    await renderPedidos(list);
     const ativos=list.filter(d=>["disponivel","aceita","coletada"].includes(d.status)).length;
     const badge=$("pedBadge");
     if(badge){badge.textContent=ativos;badge.style.display=ativos?"flex":"none"}
@@ -1257,19 +1279,20 @@ function listenPedidos(){
   },err=>console.error("pedidos",err)));
 }
 const ST_LBL={disponivel:"No mapa",aceita:"Entregador a caminho",coletada:"Em rota de entrega",concluida:"Concluída",cancelada:"Cancelada"};
-function renderPedidos(list){
+async function renderPedidos(list){
   const w=$("pedidosList");w.innerHTML="";
   if(!list.length){w.innerHTML='<div class="card" style="text-align:center;color:var(--muted);font-size:13px">Nenhuma entrega ainda.<br>Publique a primeira na aba <b>Nova</b> ➕</div>';return}
-  list.forEach(d=>{
+  const enriquecidos=await Promise.all(list.map(d=>["disponivel","aceita","coletada"].includes(d.status)?garantirCodigos(d):d));
+  enriquecidos.forEach(d=>{
     const c=document.createElement("div");c.className="card";
     let inner=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
       <b style="font-size:14px">${esc(d.item)}</b>
       <span class="status-chip st-${d.status}">${ST_LBL[d.status]||d.status}</span></div>
       <p class="txt" style="margin-bottom:8px">${d.km.toFixed(1)} km · você paga <b>${brl(d.total)}</b> · entregador recebe ${brl(d.valorEntregador)}${d.entregadorNome?` · 🛵 <b>${esc(d.entregadorNome)}</b>`:""}</p>`;
-    if(d.status==="aceita"){
+    if(d.status==="aceita"&&d.codigoColeta){
       inner+=`<div class="code-show"><small>Código de coleta — mostre ao entregador</small><b>${d.codigoColeta}</b></div>`;
     }
-    if(["aceita","coletada"].includes(d.status)){
+    if(["aceita","coletada"].includes(d.status)&&d.pin){
       inner+=`<div class="code-show pin"><small>PIN de recebimento — envie ao seu cliente</small><b>${d.pin}</b></div>
         <button class="btn sm pix" data-wa="${d.pin}">📱 Enviar PIN ao cliente por WhatsApp</button>`;
       if(d.posEntregador)inner+=`<button class="btn sm ghost" data-track="1" style="margin-top:8px">🗺️ Ver entregador no mapa</button>`;

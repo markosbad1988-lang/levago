@@ -64,5 +64,28 @@ service cloud.firestore {
       allow write: if logado() && request.auth.uid == uid;
       allow delete: if false;
     }
+
+    // ---------- CÓDIGOS (código de coleta e PIN, separados da entrega) ----------
+    // Só a loja dona e o entregador designado podem ler — ninguém mais vê o
+    // código/PIN antes (ou depois) de aceitar a entrega.
+    match /codigos/{id} {
+      allow read: if logado() && (
+        resource.data.lojaId == request.auth.uid
+        || resource.data.entregadorId == request.auth.uid
+      );
+      // só a loja cria, e já sem entregador designado
+      allow create: if logado()
+        && request.resource.data.lojaId == request.auth.uid
+        && request.resource.data.entregadorId == null;
+      // atualização permitida: dono, entregador já designado, ou um entregador
+      // se designando pela primeira vez (mesma condição do accept em /entregas)
+      allow update: if logado() && (
+        resource.data.lojaId == request.auth.uid
+        || resource.data.entregadorId == request.auth.uid
+        || (resource.data.entregadorId == null
+            && request.resource.data.entregadorId == request.auth.uid)
+      );
+      allow delete: if false;
+    }
   }
 }
