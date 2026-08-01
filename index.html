@@ -696,9 +696,15 @@ onAuthStateChanged(auth,async user=>{
   }
   S.user=user;
   S.isAdmin=(user.email||"").toLowerCase()===ADMIN_EMAIL.toLowerCase();
-  const snap=await getDoc(doc(db,"users",user.uid));
+  let snap=await getDoc(doc(db,"users",user.uid));
   if(!snap.exists()){
-    await setDoc(doc(db,"users",user.uid),{nome:user.email.split("@")[0],lojaNome:null,verificado:false,codigoVerificacao:rand4(),saldo:0,pixKey:"",criadoEm:serverTimestamp()});
+    await setDoc(doc(db,"users",user.uid),{nome:user.email.split("@")[0],lojaNome:null,verificado:false,codigoVerificacao:rand4(),entregaAtivaId:null,saldo:0,pixKey:"",criadoEm:serverTimestamp()});
+    snap=await getDoc(doc(db,"users",user.uid));
+  }else if(snap.data().verificado===undefined){
+    // conta criada antes desse recurso existir: considera verificada automaticamente
+    // (não faz sentido bloquear retroativamente quem já usava o app antes)
+    await updateDoc(doc(db,"users",user.uid),{verificado:true});
+    snap=await getDoc(doc(db,"users",user.uid));
   }
   S.perfil={id:user.uid,...(snap.exists()?snap.data():{saldo:0})};
   $("authView").style.display="none";

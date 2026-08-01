@@ -10,15 +10,19 @@ service cloud.firestore {
     function logado() { return request.auth != null; }
 
     // ---------- USUÁRIOS ----------
-    // Cada um lê/escreve o próprio perfil, mas não pode se autoverificar —
-    // só o admin pode mudar o campo "verificado".
+    // Cada um lê/escreve o próprio perfil, mas não pode se autoverificar de
+    // "false" pra "true" — só o admin faz isso. Exceção: contas antigas sem o
+    // campo "verificado" (nunca definido) são migradas automaticamente pro
+    // app na primeira vez que logam, direto pra "true" (grandfather).
     match /users/{uid} {
       allow read: if logado() && (request.auth.uid == uid || isAdmin());
       allow create: if logado() && request.auth.uid == uid && request.resource.data.verificado == false;
       allow update: if logado() && (
         isAdmin()
-        || (request.auth.uid == uid
-            && request.resource.data.get('verificado', null) == resource.data.get('verificado', null))
+        || (request.auth.uid == uid && (
+              request.resource.data.get('verificado', null) == resource.data.get('verificado', null)
+              || (resource.data.get('verificado', null) == null && request.resource.data.verificado == true)
+            ))
       );
       allow delete: if false;
     }
