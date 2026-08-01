@@ -32,25 +32,29 @@ service cloud.firestore {
       // qualquer usuário logado vê as entregas (necessário p/ mapa em tempo real)
       allow read: if logado();
 
-      // só a própria loja cria, já com status "disponivel"
+      // só a própria loja cria, já com status "disponivel", e só se não estiver suspensa
       allow create: if logado()
         && request.resource.data.lojaId == request.auth.uid
-        && request.resource.data.status == "disponivel";
+        && request.resource.data.status == "disponivel"
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('suspenso', false) == false;
 
       // atualizações permitidas:
       // 1) a loja/solicitante dono (cancelar, avaliar entregador, relatar problema)
       // 2) o entregador designado (coletar, concluir, desistir, GPS, avaliar loja, relatar problema)
       // 3) um entregador aceitando uma entrega disponível (se designando) — só se
-      //    ele não tiver nenhuma outra entrega ativa no momento (checado no
-      //    próprio perfil dele, campo entregaAtivaId) — nunca a própria entrega
+      //    ele não tiver nenhuma outra entrega ativa nem estiver suspenso (checado
+      //    no próprio perfil dele) — nunca a própria entrega
+      // 4) o admin, sempre (pra liberar entregas travadas, cancelar, resolver problemas)
       allow update: if logado() && (
-        resource.data.lojaId == request.auth.uid
+        isAdmin()
+        || resource.data.lojaId == request.auth.uid
         || resource.data.entregadorId == request.auth.uid
         || (resource.data.status == "disponivel"
             && request.resource.data.entregadorId == request.auth.uid
             && request.resource.data.entregadorId != resource.data.lojaId
             && request.resource.data.status == "aceita"
-            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('entregaAtivaId', null) == null)
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('entregaAtivaId', null) == null
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('suspenso', false) == false)
       );
 
       allow delete: if false;
@@ -88,10 +92,12 @@ service cloud.firestore {
       allow create: if logado()
         && request.resource.data.lojaId == request.auth.uid
         && request.resource.data.entregadorId == null;
-      // atualização permitida: dono, entregador já designado, ou um entregador
-      // se designando pela primeira vez (mesma condição do accept em /entregas)
+      // atualização permitida: dono, entregador já designado, um entregador
+      // se designando pela primeira vez (mesma condição do accept em /entregas),
+      // ou o admin (pra liberar entregas travadas)
       allow update: if logado() && (
-        resource.data.lojaId == request.auth.uid
+        isAdmin()
+        || resource.data.lojaId == request.auth.uid
         || resource.data.entregadorId == request.auth.uid
         || (resource.data.entregadorId == null
             && request.resource.data.entregadorId == request.auth.uid)

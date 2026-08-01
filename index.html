@@ -417,7 +417,15 @@
   <div class="page" id="pgAdmin">
     <div class="page-scroll">
       <h2>💼 Painel do dono</h2>
-      <p class="lead">Receita da plataforma e saques pendentes.</p>
+      <p class="lead">Visão geral, saques, problemas e usuários da plataforma.</p>
+      <div class="card">
+        <h3>📊 Visão geral</h3>
+        <div class="stats" style="margin-bottom:0">
+          <div class="stat"><b id="admTotalUsers">0</b><small>Usuários</small></div>
+          <div class="stat"><b id="admTotalEntregas">0</b><small>Entregas (total)</small></div>
+          <div class="stat"><b id="admAtivas">0</b><small>Em andamento agora</small></div>
+        </div>
+      </div>
       <div class="card">
         <h3>Receita acumulada (comissões)</h3>
         <div class="saldo-big" id="admRev" style="color:var(--go)">R$ 0,00</div>
@@ -428,8 +436,17 @@
         <div id="admChart" style="display:flex;align-items:flex-end;gap:6px;height:100px;margin-top:10px"></div>
       </div>
       <div class="card">
+        <h3>🔒 Entregas travadas</h3>
+        <p class="txt" style="margin-bottom:10px">Entregas aceitas há mais de 6h sem conclusão — provável entregador que sumiu.</p>
+        <div id="admTravadas"></div>
+      </div>
+      <div class="card">
         <h3>⚡ Saques pendentes</h3>
         <div id="admSaques"></div>
+      </div>
+      <div class="card">
+        <h3>🧾 Histórico de saques pagos</h3>
+        <div id="admSaquesPagos"></div>
       </div>
       <div class="card">
         <h3>⚠️ Problemas relatados</h3>
@@ -438,6 +455,11 @@
       <div class="card">
         <h3>📱 Verificações de WhatsApp pendentes</h3>
         <div id="admVerificacoes"></div>
+      </div>
+      <div class="card">
+        <h3>👥 Usuários</h3>
+        <input class="inp" id="admBuscaUser" placeholder="Buscar por nome..." style="margin-bottom:14px">
+        <div id="admUsuarios"></div>
       </div>
     </div>
   </div>
@@ -672,7 +694,7 @@ $("aBtn").onclick=async()=>{
       const cred=await createUserWithEmailAndPassword(auth,email,senha);
       await setDoc(doc(db,"users",cred.user.uid),{
         nome, lojaNome:lojaNome||null, telefone,
-        verificado:false, codigoVerificacao:rand4(), entregaAtivaId:null,
+        verificado:false, codigoVerificacao:rand4(), entregaAtivaId:null, suspenso:false,
         saldo:0, pixKey:"", criadoEm:serverTimestamp()
       });
     }else{
@@ -698,7 +720,7 @@ onAuthStateChanged(auth,async user=>{
   S.isAdmin=(user.email||"").toLowerCase()===ADMIN_EMAIL.toLowerCase();
   let snap=await getDoc(doc(db,"users",user.uid));
   if(!snap.exists()){
-    await setDoc(doc(db,"users",user.uid),{nome:user.email.split("@")[0],lojaNome:null,verificado:false,codigoVerificacao:rand4(),entregaAtivaId:null,saldo:0,pixKey:"",criadoEm:serverTimestamp()});
+    await setDoc(doc(db,"users",user.uid),{nome:user.email.split("@")[0],lojaNome:null,verificado:false,codigoVerificacao:rand4(),entregaAtivaId:null,suspenso:false,saldo:0,pixKey:"",criadoEm:serverTimestamp()});
     snap=await getDoc(doc(db,"users",user.uid));
   }else if(snap.data().verificado===undefined){
     // conta criada antes desse recurso existir: considera verificada automaticamente
@@ -901,6 +923,7 @@ $("btnCloseSheet").onclick=()=>$("sheet").classList.remove("open");
 
 $("btnAccept").onclick=async()=>{
   const job=S.sheetJob;if(!job)return;
+  if(S.perfil.suspenso){toast("🚫 Sua conta está suspensa. Fale com o suporte pelo WhatsApp.");return}
   if(!S.perfil.verificado){toast("📱 Confirme seu WhatsApp antes de aceitar entregas.");mostrarBannerVerificacao();return}
   $("btnAccept").disabled=true;
   try{
@@ -1269,6 +1292,7 @@ function calcPrice(){
   $("feeNote").innerHTML=`Sem mensalidade: comissão fixa de ${Math.round(COMISSAO_PLATAFORMA*100)}% sobre a tarifa. Entregador recebe 60% (mínimo garantido de ${brl(PISO_ENTREGADOR)}) quando o cliente confirma o PIN.`;
 }
 $("btnPublish").onclick=async()=>{
+  if(S.perfil.suspenso){toast("🚫 Sua conta está suspensa. Fale com o suporte pelo WhatsApp.");return}
   if(!S.perfil.verificado){toast("📱 Confirme seu WhatsApp antes de publicar uma entrega.");mostrarBannerVerificacao();return}
   if(!S.coleta||!S.destino){toast("Marque os pontos de coleta e entrega no mapa. 🗺️");return}
   const item=$("fItem").value.trim();
@@ -1435,6 +1459,16 @@ function listenAdmin(){
     $("admInfo").innerHTML=`<b>${n}</b> entregas concluídas na plataforma. Comissões a faturar das lojas via PIX (semanal).`;
     renderAdminChart(porDia);
   },()=>{}));
+
+  // ---- visão geral (todas as entregas) ----
+  S.unsubs.push(onSnapshot(collection(db,"entregas"),snap=>{
+    $("admTotalEntregas").textContent=snap.size;
+    let ativas=0;
+    snap.forEach(d=>{if(["disponivel","aceita","coletada"].includes(d.data().status))ativas++});
+    $("admAtivas").textContent=ativas;
+  },()=>{}));
+
+  // ---- saques pendentes ----
   const q2=query(collection(db,"saques"),where("status","==","pendente"));
   S.unsubs.push(onSnapshot(q2,snap=>{
     const w=$("admSaques");w.innerHTML="";
@@ -1452,21 +1486,45 @@ function listenAdmin(){
       w.appendChild(el);
     });
   },()=>{}));
+
+  // ---- histórico de saques pagos ----
+  const q2b=query(collection(db,"saques"),where("status","==","pago"));
+  S.unsubs.push(onSnapshot(q2b,snap=>{
+    const w=$("admSaquesPagos");w.innerHTML="";
+    if(snap.empty){w.innerHTML='<p class="txt">Nenhum saque pago ainda.</p>';return}
+    const arr=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .sort((a,b)=>(b.pagoEm?.seconds||0)-(a.pagoEm?.seconds||0)).slice(0,25);
+    arr.forEach(s=>{
+      const el=document.createElement("div");el.className="hist-row";
+      const dt=s.pagoEm&&s.pagoEm.seconds?new Date(s.pagoEm.seconds*1000).toLocaleDateString("pt-BR"):"—";
+      el.innerHTML=`<div><b>${esc(s.nome)}</b><small>PIX: ${esc(s.pixKey)} · pago em ${dt}</small></div><span class="hist-val">${brl(s.valor)}</span>`;
+      w.appendChild(el);
+    });
+  },()=>{}));
+
+  // ---- problemas relatados (com resolução) ----
   const q3=query(collection(db,"entregas"),where("problema","!=",null));
   S.unsubs.push(onSnapshot(q3,snap=>{
     const w=$("admProblemas");w.innerHTML="";
-    if(snap.empty){w.innerHTML='<p class="txt">Nenhum problema relatado. 🎉</p>';return}
     const arr=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(d=>!d.problema.resolvido)
       .sort((a,b)=>(b.problema.ts||0)-(a.problema.ts||0));
+    if(!arr.length){w.innerHTML='<p class="txt">Nenhum problema pendente. 🎉</p>';return}
     arr.forEach(s=>{
       const el=document.createElement("div");el.className="hist-row";
       el.style.alignItems="flex-start";
       el.innerHTML=`<div><b>${esc(s.lojaNome)}</b> ${s.entregadorNome?"· 🛵 "+esc(s.entregadorNome):""}
         <small>relatado por ${s.problema.papel==="entregador"?"entregador":"loja"} (${esc(s.problema.por)})</small>
-        <small style="display:block;color:var(--text);margin-top:2px">"${esc(s.problema.texto)}"</small></div>`;
+        <small style="display:block;color:var(--text);margin-top:2px">"${esc(s.problema.texto)}"</small></div>
+        <button class="btn sm pix" style="width:auto;padding:6px 12px;flex:none" data-resolver="${s.id}">Marcar resolvido</button>`;
+      el.querySelector("[data-resolver]").onclick=async ev=>{
+        try{await updateDoc(doc(db,"entregas",ev.target.dataset.resolver),{"problema.resolvido":true})}catch(e){toast("Erro ao resolver.")}
+      };
       w.appendChild(el);
     });
   },()=>{}));
+
+  // ---- verificações de whatsapp pendentes ----
   const q4=query(collection(db,"users"),where("verificado","==",false));
   S.unsubs.push(onSnapshot(q4,snap=>{
     const w=$("admVerificacoes");w.innerHTML="";
@@ -1482,6 +1540,73 @@ function listenAdmin(){
       w.appendChild(el);
     });
   },()=>{}));
+
+  // ---- entregas travadas (aceitas/coletadas há mais de 6h) ----
+  const q5=query(collection(db,"entregas"),where("status","in",["aceita","coletada"]));
+  S.unsubs.push(onSnapshot(q5,snap=>{
+    const w=$("admTravadas");w.innerHTML="";
+    const agora=Date.now();
+    const arr=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(d=>{
+        const seg=d.aceitaEm&&d.aceitaEm.seconds;
+        return seg&&(agora-seg*1000)>6*60*60*1000;
+      });
+    if(!arr.length){w.innerHTML='<p class="txt">Nenhuma entrega travada. 🎉</p>';return}
+    arr.forEach(d=>{
+      const horas=Math.round((agora-d.aceitaEm.seconds*1000)/3600000);
+      const el=document.createElement("div");el.className="hist-row";
+      el.innerHTML=`<div><b>${esc(d.lojaNome)}</b> · 🛵 ${esc(d.entregadorNome||"—")}
+        <small>${esc(d.item)} · parada há ${horas}h · status: ${ST_LBL[d.status]||d.status}</small></div>
+        <button class="btn sm danger" style="width:auto;padding:6px 12px;flex:none" data-liberar="${d.id}" data-entregador="${d.entregadorId||""}" data-status="${d.status}">${d.status==="aceita"?"Liberar entrega":"Cancelar entrega"}</button>`;
+      el.querySelector("[data-liberar]").onclick=async ev=>{
+        const btn=ev.target;const id=btn.dataset.liberar,entId=btn.dataset.entregador,st=btn.dataset.status;
+        btn.disabled=true;
+        try{
+          await runTransaction(db,async tx=>{
+            const ref=doc(db,"entregas",id);
+            if(st==="aceita"){
+              tx.update(ref,{status:"disponivel",entregadorId:null,entregadorNome:null,entregadorTelefone:null,posEntregador:null});
+              tx.update(doc(db,"codigos",id),{entregadorId:null});
+            }else{
+              tx.update(ref,{status:"cancelada"});
+            }
+            if(entId)tx.update(doc(db,"users",entId),{entregaAtivaId:null});
+          });
+          toast(st==="aceita"?"Entrega liberada de volta ao mapa.":"Entrega cancelada.");
+        }catch(e){console.error(e);toast("Erro ao liberar. Tente de novo.")}
+        btn.disabled=false;
+      };
+      w.appendChild(el);
+    });
+  },()=>{}));
+
+  // ---- usuários ----
+  let usuariosCache=[];
+  function renderUsuarios(filtro){
+    const w=$("admUsuarios");w.innerHTML="";
+    const termo=(filtro||"").toLowerCase().trim();
+    const arr=usuariosCache.filter(u=>!termo||(u.nome||"").toLowerCase().includes(termo));
+    if(!arr.length){w.innerHTML='<p class="txt">Nenhum usuário encontrado.</p>';return}
+    arr.forEach(u=>{
+      const el=document.createElement("div");el.className="hist-row";
+      el.style.alignItems="flex-start";
+      el.innerHTML=`<div><b>${esc(u.nome)}</b> ${u.suspenso?'<span class="status-chip st-cancelada">Suspenso</span>':""}
+        <small>${esc(u.telefone||"sem WhatsApp")} · saldo ${brl(u.saldo||0)} ${u.verificado?"· ✅ verificado":"· ⏳ não verificado"}</small></div>
+        <button class="btn sm ${u.suspenso?"pix":"danger"}" style="width:auto;padding:6px 12px;flex:none" data-susp="${u.id}" data-estado="${u.suspenso?"1":"0"}">${u.suspenso?"Reativar":"Suspender"}</button>`;
+      el.querySelector("[data-susp]").onclick=async ev=>{
+        const btn=ev.target;const suspenderAgora=btn.dataset.estado==="0";
+        if(suspenderAgora&&!confirm(`Suspender ${u.nome}? A conta não vai conseguir pedir nem aceitar entregas.`))return;
+        try{await updateDoc(doc(db,"users",btn.dataset.susp),{suspenso:suspenderAgora})}catch(e){toast("Erro ao atualizar usuário.")}
+      };
+      w.appendChild(el);
+    });
+  }
+  S.unsubs.push(onSnapshot(collection(db,"users"),snap=>{
+    usuariosCache=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.nome||"").localeCompare(b.nome||""));
+    $("admTotalUsers").textContent=usuariosCache.length;
+    renderUsuarios($("admBuscaUser").value);
+  },()=>{}));
+  $("admBuscaUser").oninput=()=>renderUsuarios($("admBuscaUser").value);
 }
 
 
