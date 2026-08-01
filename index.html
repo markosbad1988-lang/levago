@@ -246,6 +246,14 @@
 
   <div class="pick-hint" id="pickHint"></div>
 
+  <!-- banner de verificação de WhatsApp pendente -->
+  <div id="verifBanner" style="display:none;position:absolute;top:64px;left:12px;right:12px;z-index:1000;background:var(--panel);border:1.5px solid var(--go);border-radius:var(--radius);padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:456px;margin:0 auto">
+    <div style="font-weight:800;font-size:14px;margin-bottom:6px">📱 Confirme seu WhatsApp</div>
+    <div style="font-size:12.5px;color:var(--muted);line-height:1.5;margin-bottom:10px">Envie o código abaixo pelo WhatsApp pra gente confirmar seu número. Só depois disso você pode pedir ou aceitar entregas.</div>
+    <div class="code-show"><small>Seu código</small><b id="verifCodigo">----</b></div>
+    <button class="btn sm" id="btnVerifWpp" style="margin-top:8px">📱 Enviar código por WhatsApp</button>
+  </div>
+
   <!-- banner entrega ativa (entregador) -->
   <div id="activeBanner">
     <div class="ab-top">
@@ -427,6 +435,10 @@
         <h3>⚠️ Problemas relatados</h3>
         <div id="admProblemas"></div>
       </div>
+      <div class="card">
+        <h3>📱 Verificações de WhatsApp pendentes</h3>
+        <div id="admVerificacoes"></div>
+      </div>
     </div>
   </div>
 
@@ -504,6 +516,8 @@ const FIREBASE_CONFIG = {
 };
 /* Seu e-mail de dono do app (libera o painel Admin): */
 const ADMIN_EMAIL = "markos_bad@hotmail.com";
+/* Seu WhatsApp (só números, com DDD, sem +55) — pra onde o usuário manda o código de verificação: */
+const ADMIN_WHATSAPP = "24999998888";
 /* Centro do mapa (Valença-RJ): */
 const CENTER = [-22.2458, -43.7010];
 /* Cidade padrão já vem pré-preenchida nos campos do formulário de endereço */
@@ -658,6 +672,7 @@ $("aBtn").onclick=async()=>{
       const cred=await createUserWithEmailAndPassword(auth,email,senha);
       await setDoc(doc(db,"users",cred.user.uid),{
         nome, lojaNome:lojaNome||null, telefone,
+        verificado:false, codigoVerificacao:rand4(), entregaAtivaId:null,
         saldo:0, pixKey:"", criadoEm:serverTimestamp()
       });
     }else{
@@ -683,7 +698,7 @@ onAuthStateChanged(auth,async user=>{
   S.isAdmin=(user.email||"").toLowerCase()===ADMIN_EMAIL.toLowerCase();
   const snap=await getDoc(doc(db,"users",user.uid));
   if(!snap.exists()){
-    await setDoc(doc(db,"users",user.uid),{nome:user.email.split("@")[0],lojaNome:null,saldo:0,pixKey:"",criadoEm:serverTimestamp()});
+    await setDoc(doc(db,"users",user.uid),{nome:user.email.split("@")[0],lojaNome:null,verificado:false,codigoVerificacao:rand4(),saldo:0,pixKey:"",criadoEm:serverTimestamp()});
   }
   S.perfil={id:user.uid,...(snap.exists()?snap.data():{saldo:0})};
   $("authView").style.display="none";
@@ -717,6 +732,7 @@ function bootApp(){
   const p=S.perfil;
   $("hdNome").textContent="👤 "+(p.nome||"").split(" ")[0];
   $("hdSaldoPill").style.display="flex";
+  atualizarBannerVerificacao();
   startGPS();
   const tabs=[
     {id:"map",ico:"🗺️",lbl:"Mapa"},
@@ -741,6 +757,21 @@ function bootApp(){
   if(S.isAdmin)listenAdmin();
   showPage("map");
 }
+/* ================== VERIFICAÇÃO DE WHATSAPP (manual) ================== */
+function atualizarBannerVerificacao(){
+  const b=$("verifBanner");
+  if(S.perfil.verificado){b.style.display="none";return}
+  $("verifCodigo").textContent=S.perfil.codigoVerificacao||"----";
+  b.style.display="block";
+}
+function mostrarBannerVerificacao(){
+  showPage("map");
+  atualizarBannerVerificacao();
+}
+$("btnVerifWpp").onclick=()=>{
+  const msg=encodeURIComponent(`Oi! Quero confirmar meu número no LevaGO.\nNome: ${S.perfil.nome||"—"}\nCódigo: ${S.perfil.codigoVerificacao||"----"}`);
+  window.open("https://wa.me/55"+ADMIN_WHATSAPP+"?text="+msg,"_blank");
+};
 function showPage(id){
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("on"));
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.page===id));
@@ -864,22 +895,27 @@ $("btnCloseSheet").onclick=()=>$("sheet").classList.remove("open");
 
 $("btnAccept").onclick=async()=>{
   const job=S.sheetJob;if(!job)return;
+  if(!S.perfil.verificado){toast("📱 Confirme seu WhatsApp antes de aceitar entregas.");mostrarBannerVerificacao();return}
   $("btnAccept").disabled=true;
   try{
     await runTransaction(db,async tx=>{
       const ref=doc(db,"entregas",job.id);
+      const userRef=doc(db,"users",S.user.uid);
       const snap=await tx.get(ref);
+      const userSnap=await tx.get(userRef);
       if(!snap.exists()||snap.data().status!=="disponivel")throw new Error("tarde");
+      if(userSnap.exists()&&userSnap.data().entregaAtivaId)throw new Error("ativa");
       tx.update(ref,{status:"aceita",entregadorId:S.user.uid,entregadorNome:S.perfil.nome,entregadorTelefone:S.perfil.telefone||null,aceitaEm:serverTimestamp()});
       // atualização "às cegas" (sem ler antes) — a regra do Firestore só permite
       // se entregadorId ainda estiver null, o que evita dois entregadores
       // acertarem a mesma entrega ao mesmo tempo
       tx.update(doc(db,"codigos",job.id),{entregadorId:S.user.uid});
+      tx.update(userRef,{entregaAtivaId:job.id});
     });
     $("sheet").classList.remove("open");
     toast("🚀 Entrega aceita! Vá até o ponto de coleta.");
   }catch(e){
-    toast("😕 Outro entregador aceitou primeiro. Escolha outra!");
+    toast(e.message==="ativa"?"Finalize sua entrega atual antes de aceitar outra.":"😕 Outro entregador aceitou primeiro. Escolha outra!");
   }
   $("btnAccept").disabled=false;
 };
@@ -948,7 +984,11 @@ $("abCancel").onclick=async()=>{
   if(j.status!=="aceita"){toast("Após a coleta não é possível desistir — conclua a entrega.");return}
   if(!confirm("Desistir desta entrega? Ela volta ao mapa para outros entregadores."))return;
   try{
-    await updateDoc(doc(db,"entregas",j.id),{status:"disponivel",entregadorId:null,entregadorNome:null,posEntregador:null});
+    await runTransaction(db,async tx=>{
+      tx.update(doc(db,"entregas",j.id),{status:"disponivel",entregadorId:null,entregadorNome:null,entregadorTelefone:null,posEntregador:null});
+      tx.update(doc(db,"codigos",j.id),{entregadorId:null});
+      tx.update(doc(db,"users",S.user.uid),{entregaAtivaId:null});
+    });
     toast("Entrega devolvida ao mapa.");
   }catch(e){toast("Erro ao desistir. Tente de novo.")}
 };
@@ -1012,7 +1052,7 @@ $("cdBtn").onclick=async()=>{
       toast("📦 Coleta confirmada! Agora leve até o cliente.");
     }else{
       await updateDoc(doc(db,"entregas",j.id),{status:"concluida",concluidaEm:serverTimestamp(),posEntregador:null});
-      await updateDoc(doc(db,"users",S.user.uid),{saldo:increment(j.valorEntregador)});
+      await updateDoc(doc(db,"users",S.user.uid),{saldo:increment(j.valorEntregador),entregaAtivaId:null});
       S.rateEntrega=j;
       $("payVal").textContent="+ "+brl(j.valorEntregador);
       S.rateVal=5;renderStars("rateStore");
@@ -1223,6 +1263,7 @@ function calcPrice(){
   $("feeNote").innerHTML=`Sem mensalidade: comissão fixa de ${Math.round(COMISSAO_PLATAFORMA*100)}% sobre a tarifa. Entregador recebe 60% (mínimo garantido de ${brl(PISO_ENTREGADOR)}) quando o cliente confirma o PIN.`;
 }
 $("btnPublish").onclick=async()=>{
+  if(!S.perfil.verificado){toast("📱 Confirme seu WhatsApp antes de publicar uma entrega.");mostrarBannerVerificacao();return}
   if(!S.coleta||!S.destino){toast("Marque os pontos de coleta e entrega no mapa. 🗺️");return}
   const item=$("fItem").value.trim();
   if(!item){toast("Descreva o que será entregue.");return}
@@ -1417,6 +1458,21 @@ function listenAdmin(){
       el.innerHTML=`<div><b>${esc(s.lojaNome)}</b> ${s.entregadorNome?"· 🛵 "+esc(s.entregadorNome):""}
         <small>relatado por ${s.problema.papel==="entregador"?"entregador":"loja"} (${esc(s.problema.por)})</small>
         <small style="display:block;color:var(--text);margin-top:2px">"${esc(s.problema.texto)}"</small></div>`;
+      w.appendChild(el);
+    });
+  },()=>{}));
+  const q4=query(collection(db,"users"),where("verificado","==",false));
+  S.unsubs.push(onSnapshot(q4,snap=>{
+    const w=$("admVerificacoes");w.innerHTML="";
+    if(snap.empty){w.innerHTML='<p class="txt">Ninguém esperando verificação. 🎉</p>';return}
+    const arr=snap.docs.map(d=>({id:d.id,...d.data()}));
+    arr.forEach(u=>{
+      const el=document.createElement("div");el.className="hist-row";
+      el.innerHTML=`<div><b>${esc(u.nome)}</b><small>WhatsApp cadastrado: ${esc(u.telefone||"—")} · código: ${esc(u.codigoVerificacao||"----")}</small></div>
+        <button class="btn sm pix" style="width:auto;padding:6px 12px" data-verificar="${u.id}">Marcar verificado</button>`;
+      el.querySelector("[data-verificar]").onclick=async ev=>{
+        try{await updateDoc(doc(db,"users",ev.target.dataset.verificar),{verificado:true})}catch(e){toast("Erro ao verificar.")}
+      };
       w.appendChild(el);
     });
   },()=>{}));
